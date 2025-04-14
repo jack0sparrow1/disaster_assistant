@@ -1,0 +1,6 @@
+groq
+deep-translator
+SpeechRecognition
+gTTS
+playsound
+warnings

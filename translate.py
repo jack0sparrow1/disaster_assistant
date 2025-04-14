@@ -140,6 +140,7 @@ def voice():
 
         except Exception as e:
             return jsonify({"error": f"Voice input failed: {str(e)}"}), 500
-
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Set host to '0.0.0.0' and port from the environment
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+

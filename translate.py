@@ -1,58 +1,33 @@
+from flask import Flask, request, jsonify
 from groq import Groq
 from deep_translator import GoogleTranslator
-import speech_recognition as sr
 from gtts import gTTS
+import speech_recognition as sr
 import tempfile
+import base64
 import os
-import playsound
-import warnings
 import re
 from dotenv import load_dotenv
+import warnings
 
-
+# Load environment variables
 load_dotenv()
 
+# Initialize Flask app
+app = Flask(__name__)
+
+# Setup Groq client
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY) 
-# Language map for display and internal use
+client = Groq(api_key=GROQ_API_KEY)
+
+# Supported languages
 LANGUAGES = {
-    'hi': 'Hindi',
-    'te': 'Telugu',
-    'ta': 'Tamil',
-    'bn': 'Bengali',
-    'mr': 'Marathi',
-    'ml': 'Malayalam',   
-    'kn': 'Kannada', 
-    'en': 'English'
+    'hi': 'Hindi', 'te': 'Telugu', 'ta': 'Tamil', 'bn': 'Bengali',
+    'mr': 'Marathi', 'ml': 'Malayalam', 'kn': 'Kannada', 'en': 'English'
 }
 
-import time
-
-def get_voice_input(lang_code: str) -> str:
-    """Capture voice input and convert to text using Google Speech Recognition."""
-    r = sr.Recognizer()
-    r.energy_threshold = 400
-    r.dynamic_energy_threshold = True
-    r.pause_threshold = 1.5
-
-    with sr.Microphone() as source:
-        print("🎙️ Speak now...")
-        time.sleep(1.5)  # Let user prepare
-        r.adjust_for_ambient_noise(source, duration=2)  # Better noise handling
-        print(f"🔊 Calibrated energy threshold: {r.energy_threshold}")
-        
-        try:
-            audio = r.listen(source, timeout=10, phrase_time_limit=15)
-            text = r.recognize_google(audio, language=f"{lang_code}-IN")
-            print(f"📝 You said: {text}")
-            return text
-        except sr.UnknownValueError:
-            return "Sorry, I could not understand the audio."
-        except sr.RequestError as e:
-            return f"Could not request results; {e}"
-
 def translate_text(text: str, target_lang: str, source_lang: str = 'auto') -> str:
-    """Handle translation with error fallback"""
+    """Translates input text to the target language."""
     try:
         if source_lang == target_lang:
             return text
@@ -60,25 +35,12 @@ def translate_text(text: str, target_lang: str, source_lang: str = 'auto') -> st
     except Exception as e:
         warnings.warn(f"Translation failed: {str(e)}")
         return text
-def get_groq_response(prompt: str, lang_code: str, model: str = "llama3-70b-8192") -> str:
-    """Get AI response in the target language with clear formatting"""
-    language_name = LANGUAGES.get(lang_code, 'your language')
 
-    safe_prompt = f"""
-    You are AidBot, a helpful assistant that provides clear, complete, and friendly advice about disasters and emergency preparedness.
-
-    The user is speaking in {language_name}. You MUST reply only in {language_name} using native script and everyday, natural language.
-
-    Avoid special formatting like markdown (no bold, bullets, or numbered lists). Write full, grammatically correct sentences.
-
-    Your response should be smooth and easy to read, in short, meaningful paragraphs. Avoid breaking sentences unnaturally or using fragments.
-
-    The user asked: {prompt}
-    """
-
+def get_groq_response(prompt: str, model: str = "llama3-70b-8192") -> str:
+    """Gets AI response in English (Groq always returns English)."""
     try:
         response = client.chat.completions.create(
-            messages=[{"role": "user", "content": safe_prompt}],
+            messages=[{"role": "user", "content": prompt}],
             model=model,
             temperature=0.3
         )
@@ -86,80 +48,98 @@ def get_groq_response(prompt: str, lang_code: str, model: str = "llama3-70b-8192
     except Exception as e:
         raise RuntimeError(f"Groq API error: {str(e)}")
 
-def speak_text(text: str, lang: str = 'en'):
-    """Convert text to speech and play it, cleaning up temp file properly."""
+def speak_text(text: str, lang: str = 'en') -> str:
+    """Converts text to speech and returns the audio as base64."""
     try:
         tts = gTTS(text=text, lang=lang)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
             temp_path = fp.name
         tts.save(temp_path)
-        
-        playsound.playsound(temp_path)
+        with open(temp_path, "rb") as audio_file:
+            encoded_string = base64.b64encode(audio_file.read()).decode('utf-8')
+        os.remove(temp_path)
+        return encoded_string
     except Exception as e:
-        print(f"Voice output failed: {e}")
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception as cleanup_error:
-                print(f"Failed to delete temp audio: {cleanup_error}")
+        return f"TTS generation failed: {e}"
 
-def select_language() -> str:
-    """Prompt user to select a preferred language code."""
-    print("Select your preferred language:")
-    for code, name in LANGUAGES.items():
-        print(f"{code} - {name}")
-    while True:
-        choice = input("Enter language code (e.g., te, hi, en): ").strip().lower()
-        if choice in LANGUAGES:
-            print(f"✅ You selected: {LANGUAGES[choice]}")
-            return choice
-        else:
-            print("Invalid choice. Please try again.")
-def main():
-    print("🧭 AidChain Multilingual Chatbot")
-    print("🌐 Supports: Hindi, Telugu, Tamil, Bengali, Marathi, English\n")
+@app.route("/languages", methods=["GET"])
+def get_languages():
+    """Returns the available languages."""
+    return jsonify(LANGUAGES)
 
-    # Step 1: User selects preferred language
-    lang_code = select_language()
+@app.route("/chat", methods=["POST"])
+def chat():
+    """Handles user input text and returns AI response in the target language."""
+    data = request.get_json()
+    user_input = data.get("input")
+    lang_code = data.get("lang_code", "en")
 
-    while True:
+    if not user_input:
+        return jsonify({"error": "Missing input text"}), 400
+
+    # Translate user input to English
+    english_input = translate_text(user_input, 'en', lang_code)
+    
+    # If input is too short, add context
+    if len(english_input.strip().split()) < 3:
+        english_input = f"This is a disaster-related question: {english_input}"
+
+    # Get Groq response in English
+    response_text = get_groq_response(english_input)
+
+    # Translate the response to the target language
+    translated_response = translate_text(response_text, lang_code, 'en')
+
+    # Clean the response for text-to-speech
+    cleaned_response = re.sub(r"[•*+→\-\–\—▶️🌐🎙️📝🚨🔈💡❗✅🔁📍📢🔥]", "", translated_response)
+
+    return jsonify({
+        "response": cleaned_response.strip()
+    })
+
+@app.route("/speak", methods=["POST"])
+def speak():
+    """Generates and returns the speech for given text."""
+    data = request.get_json()
+    text = data.get("text")
+    lang = data.get("lang", "en")
+
+    if not text:
+        return jsonify({"error": "Missing text to speak"}), 400
+
+    audio_base64 = speak_text(text, lang)
+    return jsonify({"audio_base64": audio_base64})
+
+@app.route("/voice", methods=["POST"])
+def voice():
+    """Handles voice input and returns AI response as audio output."""
+    lang_code = request.args.get("lang_code", "en")
+    recognizer = sr.Recognizer()
+    
+    with sr.Microphone() as source:
         try:
-            mode = input("\nType 'v' for voice input or press Enter for text ('exit' to quit): ").strip()
-            if mode.lower() == 'exit':
-                break
-
-            if mode.lower() == 'v':
-                user_input = get_voice_input(lang_code)
-            else:
-                user_input = input("You: ")
-
-            if user_input.lower() in ['exit', 'quit']:
-                break
-
-            # Step 2: Translate user input to English
+            recognizer.adjust_for_ambient_noise(source, duration=1.5)
+            audio = recognizer.listen(source, timeout=10, phrase_time_limit=15)
+            user_input = recognizer.recognize_google(audio, language=f"{lang_code}-IN")
+            
+            # Step 1: Translate user input to English
             english_input = translate_text(user_input, 'en', lang_code)
-
-            # Optional: Add context if input is too short
             if len(english_input.strip().split()) < 3:
                 english_input = f"This is a disaster-related question: {english_input}"
 
-            # Step 3: Get AI response in native language
-            native_response = get_groq_response(english_input, lang_code)
+            # Step 2: Get AI response in English from Groq
+            response_text = get_groq_response(english_input)
 
-            # Step 4: Show and speak the native language response
-            print("\nAidBot:")
-            print("-" * 50)
-            print(native_response)
-            print("-" * 50)
+            # Step 3: Translate response to the user’s language
+            translated_response = translate_text(response_text, lang_code, 'en')
 
-            # Clean response for TTS
-            cleaned_response = re.sub(r"[•*+→\-\–\—▶️🌐🎙️📝🚨🔈💡❗✅🔁📍📢🔥]", "", native_response)
-            speak_text(cleaned_response.strip(), lang=lang_code)
+            # Step 4: Convert translated response to audio
+            audio_base64 = speak_text(translated_response, lang_code)
+
+            return jsonify({"audio_base64": audio_base64})
 
         except Exception as e:
-            print(f"\n⚠️ Error: {str(e)}")
-            print("Please try again or check your API keys\n")
+            return jsonify({"error": f"Voice input failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True)

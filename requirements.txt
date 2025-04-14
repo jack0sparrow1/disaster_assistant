@@ -2,5 +2,6 @@ groq
 deep-translator
 SpeechRecognition
 gTTS
-playsound
+playsound==1.2.2
 warnings
+dotenv

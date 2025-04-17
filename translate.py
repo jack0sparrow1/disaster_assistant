@@ -9,12 +9,20 @@ import os
 import re
 from dotenv import load_dotenv
 import warnings
+from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
 
 # Initialize Flask app
+
+
+# Initialize Flask app
 app = Flask(__name__)
+
+# Enable CORS
+CORS(app)
+
 
 # Setup Groq client
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

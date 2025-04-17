@@ -5,3 +5,4 @@ gTTS
 playsound==1.2.2
 dotenv
 flask
+flask-cors

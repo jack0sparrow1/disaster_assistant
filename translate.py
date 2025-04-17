@@ -84,9 +84,17 @@ def chat():
     if len(english_input.strip().split()) < 3:
         english_input = f"This is a disaster-related question: {english_input}"
 
-    # Get Groq response in English
-    response_text = get_groq_response(english_input)
+    # Static English intro
+    static_intro_en = "🌐 Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
 
+    # Translate the intro to user's language
+    static_intro_local = translate_text(static_intro_en, lang_code, 'en')
+
+    # Get Groq response in English  
+    groq_response = get_groq_response(english_input)
+
+    # Combine translated static intro with Groq response
+    response_text = f"{static_intro_local}\n\n{groq_response}"
     # Translate the response to the target language
     translated_response = translate_text(response_text, lang_code, 'en')
 
@@ -127,8 +135,10 @@ def voice():
             if len(english_input.strip().split()) < 3:
                 english_input = f"This is a disaster-related question: {english_input}"
 
-            # Step 2: Get AI response in English from Groq
-            response_text = get_groq_response(english_input)
+            static_intro_en = "Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
+            static_intro_local = translate_text(static_intro_en, lang_code, 'en')
+            groq_response = get_groq_response(english_input)
+            response_text = f"{static_intro_local}\n\n{groq_response}"
 
             # Step 3: Translate response to the user’s language
             translated_response = translate_text(response_text, lang_code, 'en')

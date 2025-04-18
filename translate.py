@@ -93,7 +93,7 @@ def chat():
         english_input = f"This is a disaster-related question: {english_input}"
 
     # Static English intro
-    static_intro_en = "🌐 Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
+    static_intro_en = "Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
 
     # Translate the intro to user's language
     static_intro_local = translate_text(static_intro_en, lang_code, 'en')
@@ -146,7 +146,7 @@ def voice():
             static_intro_en = "Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
             static_intro_local = translate_text(static_intro_en, lang_code, 'en')
             groq_response = get_groq_response(english_input)
-            response_text = f"{static_intro_local}\n\n{groq_response}"
+            response_text = f"{groq_response}"
 
             # Step 3: Translate response to the user’s language
             translated_response = translate_text(response_text, lang_code, 'en')

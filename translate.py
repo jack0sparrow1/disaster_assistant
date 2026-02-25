@@ -1,11 +1,10 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from groq import Groq
 from deep_translator import GoogleTranslator
-from gtts import gTTS
 import speech_recognition as sr
-import tempfile
-import base64
+import io
 import os
+import subprocess
 import re
 from dotenv import load_dotenv
 import warnings
@@ -44,7 +43,7 @@ def translate_text(text: str, target_lang: str, source_lang: str = 'auto') -> st
         warnings.warn(f"Translation failed: {str(e)}")
         return text
 
-def get_groq_response(prompt: str, model: str = "llama3-70b-8192") -> str:
+def get_groq_response(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
     """Gets AI response in English (Groq always returns English)."""
     try:
         response = client.chat.completions.create(
@@ -56,19 +55,48 @@ def get_groq_response(prompt: str, model: str = "llama3-70b-8192") -> str:
     except Exception as e:
         raise RuntimeError(f"Groq API error: {str(e)}")
 
-def speak_text(text: str, lang: str = 'en') -> str:
-    """Converts text to speech and returns the audio as base64."""
-    try:
-        tts = gTTS(text=text, lang=lang)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            temp_path = fp.name
-        tts.save(temp_path)
-        with open(temp_path, "rb") as audio_file:
-            encoded_string = base64.b64encode(audio_file.read()).decode('utf-8')
-        os.remove(temp_path)
-        return encoded_string
-    except Exception as e:
-        return f"TTS generation failed: {e}"
+# ------------------------------
+# TTS FUNCTION (EDGE-TTS STREAMING)
+# ------------------------------
+
+# Map simple language codes to high-quality Microsoft Edge Neural Voices
+VOICE_MAP = {
+    "en": "en-US-JennyNeural",
+    "hi": "hi-IN-SwaraNeural",
+    "bn": "bn-IN-TanishaaNeural",
+    "ta": "ta-IN-PallaviNeural",
+    "te": "te-IN-ShrutiNeural",
+    "mr": "mr-IN-AarohiNeural",
+    "gu": "gu-IN-DhwaniNeural",
+    "kn": "kn-IN-SapnaNeural",
+    "ml": "ml-IN-SobhanaNeural",
+    "pa": "pa-IN-OjasNeural",
+    "ur": "ur-IN-GulNeural"
+}
+
+@app.route("/speak", methods=["GET"])
+def speak_stream():
+    """Streams audio back to the browser on the fly using edge-tts CLI"""
+    text = request.args.get("text", "")
+    lang_code = request.args.get("lang", "en")
+    
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+        
+    voice = VOICE_MAP.get(lang_code, "en-US-JennyNeural")
+    
+    def generate():
+        cmd = ["edge-tts", "--voice", voice, "--text", text]
+        # Popen runs the process, and we read stdout as it streams from Microsoft's servers
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        while True:
+            data = process.stdout.read(4096)
+            if not data:
+                break
+            yield data
+            
+    return Response(stream_with_context(generate()), mimetype="audio/mpeg")
 
 @app.route("/languages", methods=["GET"])
 def get_languages():
@@ -106,58 +134,52 @@ def chat():
     # Translate the response to the target language
     translated_response = translate_text(response_text, lang_code, 'en')
 
-    # Clean the response for text-to-speech
+    # Clean the response for TTS readability
     cleaned_response = re.sub(r"[•*+→\-\–\—▶️🌐🎙️📝🚨🔈💡❗✅🔁📍📢🔥]", "", translated_response)
 
     return jsonify({
         "response": cleaned_response.strip()
     })
 
-@app.route("/speak", methods=["POST"])
-def speak():
-    """Generates and returns the speech for given text."""
-    data = request.get_json()
-    text = data.get("text")
-    lang = data.get("lang", "en")
 
-    if not text:
-        return jsonify({"error": "Missing text to speak"}), 400
 
-    audio_base64 = speak_text(text, lang)
-    return jsonify({"audio_base64": audio_base64})
-
-@app.route("/voice", methods=["POST"])
-def voice():
-    """Handles voice input and returns AI response as audio output."""
-    lang_code = request.args.get("lang_code", "en")
-    recognizer = sr.Recognizer()
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    """Handles audio blob upload from frontend and returns transcription."""
+    lang_code = request.form.get("lang_code", "en")
     
-    with sr.Microphone() as source:
-        try:
-            recognizer.adjust_for_ambient_noise(source, duration=1.5)
-            audio = recognizer.listen(source, timeout=10, phrase_time_limit=15)
-            user_input = recognizer.recognize_google(audio, language=f"{lang_code}-IN")
-            
-            # Step 1: Translate user input to English
-            english_input = translate_text(user_input, 'en', lang_code)
-            if len(english_input.strip().split()) < 3:
-                english_input = f"This is a disaster-related question: {english_input}"
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+        
+    audio_file = request.files["audio"]
+    audio_bytes = audio_file.read()
+    
+    try:
+        # Transcribe using Groq Whisper model (handles webm natively)
+        transcription = client.audio.transcriptions.create(
+            file=("audio.webm", audio_bytes),
+            model="whisper-large-v3",
+            language=lang_code
+        )
+        user_input = transcription.text
+        if not user_input or not user_input.strip():
+             return jsonify({"error": "No speech detected"}), 400
+             
+        return jsonify({"transcript": user_input.strip()})
 
-            # static_intro_en = "Welcome to AidChain — a blockchain-based platform ensuring transparent and instant disaster relief."
-            # static_intro_local = translate_text(static_intro_en, lang_code, 'en')
-            groq_response = get_groq_response(english_input)
-            response_text = f"{groq_response}"
+    except Exception as e:
+        return jsonify({"error": f"Transcription failed: {str(e)}"}), 500
 
-            # Step 3: Translate response to the user’s language
-            translated_response = translate_text(response_text, lang_code, 'en')
+# --- FRONTEND ROUTES (COMMENTED OUT FOR API ONLY USAGE) ---
 
-            # Step 4: Convert translated response to audio
-            audio_base64 = speak_text(translated_response, lang_code)
+# @app.route("/")
+# def index():
+#     return send_from_directory('frontend', 'index.html')
 
-            return jsonify({"audio_base64": audio_base64})
+# @app.route("/<path:path>")
+# def static_files(path):
+#     return send_from_directory('frontend', path)
 
-        except Exception as e:
-            return jsonify({"error": f"Voice input failed: {str(e)}"}), 500
 if __name__ == "__main__":
     # Set host to '0.0.0.0' and port from the environment
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)

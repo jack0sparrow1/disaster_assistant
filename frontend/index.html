@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disaster Assistant AI</title>
+    <!-- Modern web font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome for standard icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Main stylesheets -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Application Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-shield-halved logo-icon"></i>
+                <div class="logo-text">AidChain <span class="badge">AI</span></div>
+            </div>
+            <div class="controls-area">
+                <div class="lang-selector">
+                    <i class="fa-solid fa-globe"></i>
+                    <select id="language-select">
+                        <option value="en">English</option>
+                        <!-- Options populated dynamically via JavaScript -->
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Chat Area -->
+        <main class="chat-container" id="chat-container">
+            <div class="welcome-message">
+                <h1>Disaster Relief Assistant</h1>
+                <p>Ensuring transparent and instant disaster relief. Ask me anything about relief efforts, emergency contacts, or disaster preparedness.</p>
+            </div>
+            <!-- Interactive chat messages will appear here -->
+        </main>
+
+        <!-- User Input Area -->
+        <footer class="input-area">
+            <div class="input-wrapper">
+                <button class="voice-btn" id="voice-btn" title="Speak to assistant (uses server microphone)">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <input type="text" id="chat-input" placeholder="Type your message here..." autocomplete="off">
+                <button class="send-btn" id="send-btn" title="Send message">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="footer-note">Powered by Groq & Llama 3 🚀</div>
+        </footer>
+    </div>
+    
+    <!-- Application Logic -->
+    <script src="script.js"></script>
+</body>
+</html>
